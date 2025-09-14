@@ -103,7 +103,7 @@ class SynthwaveApp:
         self.qwen_model = None
         self.qwen_processor = None
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
-        self._initialize_qwen_model()
+        self.qwen_loading = False
 
         self._build_styles()
 
@@ -213,7 +213,7 @@ class SynthwaveApp:
         ttk.Label(video_controls, text="📽️ DURATION:", style="NeonLabel.TLabel").grid(row=0, column=0, padx=(8, 8), sticky="w")
         self.duration_var = tk.DoubleVar(value=3.0)
         self.duration_scale = ttk.Scale(video_controls, from_=1.0, to=10.0, variable=self.duration_var,
-                                       orient="horizontal", style="Neon.TScale")
+                                       orient="horizontal")
         self.duration_scale.grid(row=0, column=1, sticky="ew", padx=(0, 8))
         self.duration_label = ttk.Label(video_controls, text="3.0s", style="Status.TLabel")
         self.duration_label.grid(row=0, column=2, padx=(0, 8))
@@ -273,13 +273,18 @@ class SynthwaveApp:
 
     # ---------- Qwen2.5-VL Model Initialization ----------
     def _initialize_qwen_model(self):
-        """Initialize Qwen2.5-VL model with MPS acceleration"""
+        """Initialize Qwen2.5-VL model with MPS acceleration (lazy loading)"""
+        if self.qwen_loading or (self.qwen_model is not None):
+            return
+
+        self.qwen_loading = True
+
         def worker():
             try:
-                self.root.after(0, lambda: self.status_var.set("🧠 LOADING QWEN MODEL..."))
+                self.status_var.set("🧠 LOADING QWEN MODEL...")
 
-                # Use smaller model for better performance on Mac
-                model_name = "Qwen/Qwen2.5-VL-7B-Instruct"
+                # Use the model you have available
+                model_name = "Qwen/Qwen2.5-VL-32B-Instruct"
 
                 self.qwen_model = Qwen2VLForConditionalGeneration.from_pretrained(
                     model_name,
@@ -289,10 +294,15 @@ class SynthwaveApp:
 
                 self.qwen_processor = AutoProcessor.from_pretrained(model_name)
 
-                self.root.after(0, lambda: self.status_var.set(f"✓ QWEN MODEL LOADED ({self.device.upper()})"))
+                self.status_var.set(f"✓ QWEN MODEL LOADED ({self.device.upper()})")
+                print(f"Qwen model loaded successfully on {self.device}")
             except Exception as e:
-                self.root.after(0, lambda: self.status_var.set("✗ QWEN MODEL FAILED"))
+                self.status_var.set("✗ QWEN MODEL FAILED")
                 print(f"Failed to load Qwen model: {e}")
+                self.qwen_model = None
+                self.qwen_processor = None
+            finally:
+                self.qwen_loading = False
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -368,9 +378,6 @@ class SynthwaveApp:
                  background=[("active", SYNTH_PURPLE)],
                  foreground=[("active", SYNTH_TEXT)])
 
-        # Scale styling
-        style.configure("Neon.TScale", background=SYNTH_ACCENT, troughcolor=SYNTH_PANEL,
-                       borderwidth=1, lightcolor=SYNTH_CYAN, darkcolor=SYNTH_PURPLE)
 
     # ---------- Cameras ----------
     def rescan_cameras(self, open_first=False):
@@ -705,8 +712,13 @@ class SynthwaveApp:
     def _send_to_qwen(self):
         """Send video frames to Qwen2.5-VL for analysis"""
         if not self.qwen_model or not self.qwen_processor:
-            messagebox.showerror("Model Error", "Qwen2.5-VL model not loaded.")
-            return
+            if not self.qwen_loading:
+                self._initialize_qwen_model()
+                messagebox.showinfo("Loading Model", "Qwen2.5-VL model is loading. Please wait and try again.")
+                return
+            else:
+                messagebox.showinfo("Loading Model", "Qwen2.5-VL model is still loading. Please wait.")
+                return
 
         user_text = self.prompt_text.get("1.0", "end").strip()
         if not user_text:
