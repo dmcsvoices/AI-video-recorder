@@ -14,10 +14,9 @@ from PIL import Image, ImageTk
 # pip install lmstudio
 import lmstudio as lms
 
-# --- Transformers for Qwen2.5-VL ---
-import torch
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
-from qwen_vl_utils import process_vision_info
+# --- MLX-VLM for Qwen2.5-VL ---
+from mlx_vlm import load, generate
+from mlx_vlm.prompt_utils import apply_chat_template
 
 # If your LM Studio server isn't on the default host/port, set it here:
 # lms.configure_default_client("localhost:1234")  # e.g., "localhost:1234"
@@ -99,11 +98,11 @@ class SynthwaveApp:
         # label -> model_key (for dropdown)
         self.model_options = {}
 
-        # Initialize Qwen2.5-VL model
-        self.qwen_model = None
-        self.qwen_processor = None
-        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
-        self.qwen_loading = False
+        # Initialize MLX-VLM model
+        self.mlx_model = None
+        self.mlx_processor = None
+        self.mlx_config = None
+        self.mlx_loading = False
 
         self._build_styles()
 
@@ -271,38 +270,34 @@ class SynthwaveApp:
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-    # ---------- Qwen2.5-VL Model Initialization ----------
-    def _initialize_qwen_model(self):
-        """Initialize Qwen2.5-VL model with MPS acceleration (lazy loading)"""
-        if self.qwen_loading or (self.qwen_model is not None):
+    # ---------- MLX-VLM Model Initialization ----------
+    def _initialize_mlx_model(self):
+        """Initialize MLX-VLM model (optimized for Apple Silicon)"""
+        if self.mlx_loading or (self.mlx_model is not None):
             return
 
-        self.qwen_loading = True
+        self.mlx_loading = True
 
         def worker():
             try:
-                self.status_var.set("🧠 LOADING QWEN MODEL...")
+                self.status_var.set("🧠 LOADING MLX MODEL...")
 
-                # Use the model you have available
-                model_name = "Qwen/Qwen2.5-VL-32B-Instruct"
+                # Use quantized model for better performance
+                model_path = "mlx-community/Qwen2.5-VL-32B-Instruct-8bit"
 
-                self.qwen_model = Qwen2VLForConditionalGeneration.from_pretrained(
-                    model_name,
-                    torch_dtype=torch.bfloat16,
-                    device_map="auto"
-                ).to(self.device)
+                self.mlx_model, self.mlx_processor = load(model_path)
+                self.mlx_config = self.mlx_model.config
 
-                self.qwen_processor = AutoProcessor.from_pretrained(model_name)
-
-                self.status_var.set(f"✓ QWEN MODEL LOADED ({self.device.upper()})")
-                print(f"Qwen model loaded successfully on {self.device}")
+                self.status_var.set("✓ MLX MODEL LOADED (APPLE SILICON)")
+                print(f"MLX-VLM model loaded successfully: {model_path}")
             except Exception as e:
-                self.status_var.set("✗ QWEN MODEL FAILED")
-                print(f"Failed to load Qwen model: {e}")
-                self.qwen_model = None
-                self.qwen_processor = None
+                self.status_var.set("✗ MLX MODEL FAILED")
+                print(f"Failed to load MLX model: {e}")
+                self.mlx_model = None
+                self.mlx_processor = None
+                self.mlx_config = None
             finally:
-                self.qwen_loading = False
+                self.mlx_loading = False
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -643,8 +638,8 @@ class SynthwaveApp:
                 messagebox.showwarning("No Video", "Please record a video sequence first.")
                 return
 
-            # Send via Qwen2.5-VL
-            self._send_to_qwen()
+            # Send via MLX-VLM
+            self._send_to_mlx()
 
     def _send_to_llm(self):
         label = self.model_var.get().strip()
@@ -709,81 +704,58 @@ class SynthwaveApp:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _send_to_qwen(self):
-        """Send video frames to Qwen2.5-VL for analysis"""
-        if not self.qwen_model or not self.qwen_processor:
-            if not self.qwen_loading:
-                self._initialize_qwen_model()
-                messagebox.showinfo("Loading Model", "Qwen2.5-VL model is loading. Please wait and try again.")
+    def _send_to_mlx(self):
+        """Send video frames to MLX-VLM for analysis"""
+        if not self.mlx_model or not self.mlx_processor:
+            if not self.mlx_loading:
+                self._initialize_mlx_model()
+                messagebox.showinfo("Loading Model", "MLX-VLM model is loading. Please wait and try again.")
                 return
             else:
-                messagebox.showinfo("Loading Model", "Qwen2.5-VL model is still loading. Please wait.")
+                messagebox.showinfo("Loading Model", "MLX-VLM model is still loading. Please wait.")
                 return
 
         user_text = self.prompt_text.get("1.0", "end").strip()
         if not user_text:
-            user_text = "Describe what happens in this video."
+            user_text = "Describe what happens in this video sequence."
 
         self.send_btn.config(state="disabled")
         self.status_var.set("🧠 ANALYZING VIDEO...")
 
         def worker():
             try:
-                # Create messages in Qwen format
-                messages = [{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "video",
-                            "video": self.video_frame_paths,  # List of frame paths
-                        },
-                        {"type": "text", "text": user_text},
-                    ],
-                }]
+                # Convert file:// paths to regular paths for MLX-VLM
+                image_paths = []
+                for frame_path in self.video_frame_paths:
+                    if frame_path.startswith("file://"):
+                        image_paths.append(frame_path[7:])  # Remove 'file://' prefix
+                    else:
+                        image_paths.append(frame_path)
 
-                # Process inputs
-                text = self.qwen_processor.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
+                # Apply chat template for multiple images
+                formatted_prompt = apply_chat_template(
+                    self.mlx_processor,
+                    self.mlx_config,
+                    user_text,
+                    num_images=len(image_paths)
                 )
 
-                image_inputs, video_inputs, video_kwargs = process_vision_info(
-                    messages, return_video_kwargs=True
+                # Generate response using MLX-VLM
+                output = generate(
+                    self.mlx_model,
+                    self.mlx_processor,
+                    formatted_prompt,
+                    image_paths,
+                    verbose=False
                 )
 
-                inputs = self.qwen_processor(
-                    text=[text],
-                    images=image_inputs,
-                    videos=video_inputs,
-                    padding=True,
-                    return_tensors="pt",
-                ).to(self.device)
-
-                # Generate response
-                with torch.no_grad():
-                    generated_ids = self.qwen_model.generate(
-                        **inputs,
-                        max_new_tokens=512,
-                        temperature=0.7,
-                        do_sample=True
-                    )
-
-                output_text = self.qwen_processor.batch_decode(
-                    generated_ids, skip_special_tokens=True
-                )[0]
-
-                # Extract only the response part
-                if "assistant" in output_text:
-                    response = output_text.split("assistant")[-1].strip()
-                else:
-                    response = output_text
-
-                self.root.after(0, lambda: self._set_output(response))
+                self.root.after(0, lambda: self._set_output(output))
                 self.root.after(0, lambda: self.status_var.set("✓ VIDEO ANALYSIS COMPLETE"))
 
             except Exception as e:
-                self.root.after(0, lambda: messagebox.showerror("Video Analysis Error", f"Qwen analysis failed:\n{e}"))
+                self.root.after(0, lambda: messagebox.showerror("Video Analysis Error", f"MLX analysis failed:\n{e}"))
                 self.root.after(0, lambda: self.status_var.set("✗ VIDEO ANALYSIS FAILED"))
-                print(f"Qwen analysis error: {e}")
+                print(f"MLX analysis error: {e}")
             finally:
                 self.root.after(0, lambda: self.send_btn.config(state="normal"))
 

@@ -15,8 +15,8 @@ A synthwave-themed AI video analysis application that combines real-time webcam 
 
 ### 🧠 AI Integration
 - **LM Studio**: Compatible with locally served vision language models
-- **Qwen2.5-VL**: Direct integration with Transformers for advanced video understanding
-- **MPS Acceleration**: Optimized for Apple Silicon Macs
+- **MLX-VLM**: Optimized Apple Silicon integration with Qwen2.5-VL models
+- **Quantized Models**: 8-bit models for efficient memory usage
 
 ### 🎬 Video Recording
 - Configurable recording duration (1-10 seconds)
@@ -53,10 +53,7 @@ A synthwave-themed AI video analysis application that combines real-time webcam 
 - `lmstudio>=1.5.0` - Official LM Studio SDK
 - `opencv-python>=4.9.0` - Webcam capture and computer vision
 - `Pillow>=10.3.0` - Image processing
-- `transformers>=4.37.0` - Hugging Face Transformers
-- `torch>=2.0.0` - PyTorch with MPS support
-- `qwen-vl-utils` - Qwen vision utilities
-- `accelerate` - Model loading acceleration
+- `mlx-vlm` - Apple Silicon optimized Vision Language Models
 
 ## 🎮 Usage
 
@@ -88,14 +85,14 @@ python synthwave_cam_lmstudio.py
 - **Camera Management**: Cross-platform OpenCV backend selection
 - **Dual Inference Paths**:
   - LM Studio SDK for single-frame analysis
-  - Direct Transformers integration for video analysis
-- **MPS Acceleration**: Optimized PyTorch inference on Apple Silicon
+  - MLX-VLM integration for video sequence analysis
+- **Apple Silicon Optimization**: Native MLX framework with quantized models
 
 ### Video Processing Pipeline
 
 1. **Frame Capture**: Real-time webcam frames at 2 FPS during recording
 2. **Temporary Storage**: Frames saved as JPEG files in temp directory
-3. **Qwen2.5-VL Processing**: Video frames processed as image sequence
+3. **MLX-VLM Processing**: Video frames processed as image sequence with quantized models
 4. **Cleanup**: Automatic temporary file removal on exit
 
 ## ⚙️ Configuration
@@ -106,8 +103,8 @@ python synthwave_cam_lmstudio.py
 - Fallback handling for camera access issues
 
 ### Model Configuration
-- **Qwen Model**: Uses Qwen/Qwen2.5-VL-7B-Instruct by default
-- **Device Selection**: Automatically uses MPS if available, falls back to CPU
+- **MLX Model**: Uses mlx-community/Qwen2.5-VL-32B-Instruct-8bit (quantized)
+- **Apple Silicon**: Native MLX framework optimization
 - **LM Studio**: Configure custom host/port in code if needed
 
 ## 🎨 UI Elements
@@ -135,9 +132,9 @@ python synthwave_cam_lmstudio.py
 - Try running as administrator if needed
 
 ### Model Loading
-- First run will download Qwen2.5-VL model (~13GB)
-- Ensure sufficient RAM for model loading
-- Check MPS availability with: `torch.backends.mps.is_available()`
+- First run will download MLX quantized model (~8GB)
+- Much smaller and faster than full precision models
+- Native Apple Silicon optimization with MLX framework
 
 ### Performance Tips
 - Use smaller models for faster inference

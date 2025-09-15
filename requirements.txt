@@ -1,9 +1,5 @@
 lmstudio>=1.5.0
 opencv-python>=4.9.0
 Pillow>=10.3.0
-transformers>=4.37.0
-torch>=2.0.0
-torchvision
-qwen-vl-utils
-accelerate
+mlx-vlm
 
