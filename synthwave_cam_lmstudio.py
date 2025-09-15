@@ -282,8 +282,8 @@ class SynthwaveApp:
             try:
                 self.status_var.set("🧠 LOADING MLX MODEL...")
 
-                # Use quantized model for better performance
-                model_path = "mlx-community/Qwen2.5-VL-32B-Instruct-8bit"
+                # Use 4-bit quantized model for even better performance
+                model_path = "mlx-community/Qwen2.5-VL-32B-Instruct-4bit"
 
                 self.mlx_model, self.mlx_processor = load(model_path)
                 self.mlx_config = self.mlx_model.config
